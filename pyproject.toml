@@ -1,0 +1,15 @@
+[project]
+name = "backtesting"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "backtrader>=1.9.78.123",
+    "ipykernel>=6.30.1",
+    "matplotlib>=3.10.6",
+    "metatrader5>=5.0.5328",
+    "pandas>=2.3.2",
+    "seaborn>=0.13.2",
+    "yfinance>=0.2.66",
+]
