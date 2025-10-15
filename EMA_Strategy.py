@@ -11,13 +11,14 @@ Change parameters below: SYMBOL, CAPITAL_N, RISK_PCT, LOTS (Q), START/END dates.
 
 import MetaTrader5 as mt5
 import pandas as pd
+import numpy as np
 
 # -------------------------
 # USER PARAMETERS (edit)
 # -------------------------
-SYMBOL = "EURUSD"  # change to desired symbol
-TIMEFRAME = mt5.TIMEFRAME_H1
-BARS = 2000  # number of H1 bars to fetch (increase for longer tests)
+SYMBOL = "GBPUSD"  # change to desired symbol
+TIMEFRAME = mt5.TIMEFRAME_D1
+BARS = 3500  # number of H1 bars to fetch (increase for longer tests)
 CAPITAL_N = 10000.0  # N (account capital)
 RISK_PCT = 0.03  # 3% risk
 LOTS = 0.1  # Q = lots (example 0.1 lots = mini lot)
@@ -52,7 +53,52 @@ def fetch_rates(symbol, timeframe, nbars):
     return df
 
 
-def compute_emas(df, fast=30, slow=70):
+def compute_adx(df, period=14):
+    """Compute Average Directional Index (ADX) to identify trending/ranging markets"""
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    
+    # Calculate True Range (TR)
+    df['prev_close'] = close.shift(1)
+    df['tr1'] = high - low
+    df['tr2'] = abs(high - df['prev_close'])
+    df['tr3'] = abs(low - df['prev_close'])
+    df['TR'] = df[['tr1', 'tr2', 'tr3']].max(axis=1)
+    
+    # Calculate +DM and -DM
+    df['up_move'] = high - high.shift(1)
+    df['down_move'] = low.shift(1) - low
+    
+    df['+DM'] = np.where((df['up_move'] > df['down_move']) & (df['up_move'] > 0), df['up_move'], 0)
+    df['-DM'] = np.where((df['down_move'] > df['up_move']) & (df['down_move'] > 0), df['down_move'], 0)
+    
+    # Calculate smoothed TR and DM
+    df['TR' + str(period)] = df['TR'].rolling(window=period).sum()
+    df['+DM' + str(period)] = df['+DM'].rolling(window=period).sum()
+    df['-DM' + str(period)] = df['-DM'].rolling(window=period).sum()
+    
+    # Calculate +DI and -DI
+    df['+DI' + str(period)] = 100 * df['+DM' + str(period)] / df['TR' + str(period)]
+    df['-DI' + str(period)] = 100 * df['-DM' + str(period)] / df['TR' + str(period)]
+    
+    # Calculate DX and ADX with handling division by zero
+    denominator = df['+DI' + str(period)] + df['-DI' + str(period)]
+    df['DX'] = np.where(denominator != 0,
+                        100 * abs(df['+DI' + str(period)] - df['-DI' + str(period)]) / denominator,
+                        0)  # Default to 0 when denominator is 0
+    df['ADX'] = df['DX'].rolling(window=period).mean()
+    df['ADX'] = df['ADX'].fillna(0)  # Replace NaN values with 0
+    
+    # Clean up intermediate columns
+    cols_to_drop = ['prev_close', 'tr1', 'tr2', 'tr3', 'TR', 'up_move', 'down_move', 
+                    '+DM', '-DM', 'TR' + str(period), '+DM' + str(period), '-DM' + str(period),
+                    '+DI' + str(period), '-DI' + str(period), 'DX']
+    df.drop(columns=cols_to_drop, inplace=True)
+    
+    return df
+
+def compute_emas(df, fast=20, slow=50):
     df["EMA_fast"] = df["close"].ewm(span=fast, adjust=False).mean()
     df["EMA_slow"] = df["close"].ewm(span=slow, adjust=False).mean()
     return df
@@ -210,10 +256,7 @@ def simulate(
             # helper vars
             side = position["side"]
             entry = position["entry_price"]
-            sl = position["sl_price"]
             tp1 = position["tp1_price"]
-            lots_rem = position["lots_remaining"]
-            price_dist = position["price_distance"]
 
             # compute current unrealized profit in pips using close price
             close_price = bar["close"]
@@ -413,7 +456,66 @@ def validate_inputs():
         raise ValueError("Take partial percentage must be exactly 30% (0.30)")
     if BE_BUFFER_PIPS < 0:
         raise ValueError("Break-even buffer must be non-negative")
+    if BARS < 100:  # Minimum bars needed for reliable EMAs and ADX
+        raise ValueError("Minimum 100 bars required for reliable signals")
+        
+def validate_data(df):
+    """Validate price data quality"""
+    if df.empty:
+        raise ValueError("No data available")
+        
+    # Check for gaps
+    time_diff = df.index.to_series().diff()
+    expected_diff = pd.Timedelta(minutes=30)  # for M30 timeframe
+    if (time_diff > expected_diff * 2).any():
+        print("Warning: Data contains gaps larger than expected timeframe")
+        
+    # Check for abnormal price movements
+    price_change_pct = abs(df['close'].pct_change())
+    if (price_change_pct > 0.05).any():  # 5% price change
+        print("Warning: Detected abnormal price movements (>5% change)")
 
+
+def analyze_market_conditions(trades_df, df):
+    """Analyze strategy performance in different market conditions"""
+    if trades_df.empty:
+        return pd.DataFrame()  # Return empty DataFrame if no trades
+        
+    try:
+        trades_df = trades_df.copy()
+        
+        # Add ADX values at entry for each trade
+        trades_df['entry_adx'] = trades_df['entry_time'].map(df['ADX'])
+        trades_df['entry_adx'] = trades_df['entry_adx'].fillna(0)  # Handle any missing ADX values
+        
+        # Classify market conditions
+        trades_df['market_condition'] = 'ranging'  # default
+        trades_df.loc[trades_df['entry_adx'] > 25, 'market_condition'] = 'trending'
+        
+        # Analysis by market condition
+        conditions = trades_df.groupby('market_condition').agg({
+            'profit': ['count', 'sum', 'mean'],
+            'side': 'count'
+        }).round(2)
+        
+        conditions.columns = ['trades', 'total_profit', 'avg_profit', 'total_trades']
+        conditions['win_rate'] = trades_df[trades_df['profit'] > 0].groupby('market_condition').size() / conditions['trades']
+        
+        return conditions
+    except Exception as e:
+        print(f"Warning: Could not analyze market conditions: {str(e)}")
+        return pd.DataFrame()  # Return empty DataFrame on error
+    
+    # Analysis by market condition
+    conditions = trades_df.groupby('market_condition').agg({
+        'profit': ['count', 'sum', 'mean'],
+        'side': 'count'
+    }).round(2)
+    
+    conditions.columns = ['trades', 'total_profit', 'avg_profit', 'total_trades']
+    conditions['win_rate'] = trades_df[trades_df['profit'] > 0].groupby('market_condition').size() / conditions['trades']
+    
+    return conditions
 
 def main():
     connect_mt5()
@@ -422,7 +524,10 @@ def main():
         validate_inputs()
 
         df = fetch_rates(SYMBOL, TIMEFRAME, BARS)
-        df = compute_emas(df, fast=30, slow=70)
+        validate_data(df)  # Validate data quality
+        
+        df = compute_emas(df, fast=20, slow=50)
+        df = compute_adx(df, period=14)  # Add ADX calculation
         res = simulate(
             df,
             SYMBOL,
@@ -449,6 +554,39 @@ def main():
         print(
             f"Final equity: {res['final_equity']:.2f}, Max drawdown: {res['max_drawdown']:.2f}"
         )
+
+        # Analyze market conditions
+        if not trades_df.empty:
+            print("\n=== MARKET CONDITIONS ANALYSIS ===")
+            conditions = analyze_market_conditions(trades_df, df)
+            
+            # Only proceed with market condition analysis if we have valid conditions
+            if not conditions.empty:
+                print("\nPerformance by Market Condition:")
+                print(conditions.round(4))
+                
+                # Get the trades with market conditions
+                trades_with_conditions = trades_df.copy()
+                trades_with_conditions['entry_adx'] = trades_with_conditions['entry_time'].map(df['ADX'])
+                trades_with_conditions['market_condition'] = 'ranging'
+                trades_with_conditions.loc[trades_with_conditions['entry_adx'] > 25, 'market_condition'] = 'trending'
+                
+                # Additional insights
+                trend_trades = trades_with_conditions[trades_with_conditions['market_condition'] == 'trending']
+                range_trades = trades_with_conditions[trades_with_conditions['market_condition'] == 'ranging']
+            
+            print("\nTrending Market Stats:")
+            if not trend_trades.empty:
+                print(f"Average profit: {trend_trades['profit'].mean():.2f}")
+                print(f"Largest win: {trend_trades['profit'].max():.2f}")
+                print(f"Largest loss: {trend_trades['profit'].min():.2f}")
+            
+            print("\nRanging Market Stats:")
+            if not range_trades.empty:
+                print(f"Average profit: {range_trades['profit'].mean():.2f}")
+                print(f"Largest win: {range_trades['profit'].max():.2f}")
+                print(f"Largest loss: {range_trades['profit'].min():.2f}")
+
         # show top 5 trades
         if not trades_df.empty:
             print("\nTop 5 trades by profit:")
