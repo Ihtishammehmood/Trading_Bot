@@ -9,7 +9,10 @@ dependencies = [
     "ipykernel>=6.30.1",
     "matplotlib>=3.10.6",
     "metatrader5>=5.0.5328",
+    "mplfinance>=0.12.10b0",
+    "openpyxl>=3.1.5",
     "pandas>=2.3.2",
+    "pandas-ta>=0.4.71b0",
     "seaborn>=0.13.2",
     "yfinance>=0.2.66",
 ]

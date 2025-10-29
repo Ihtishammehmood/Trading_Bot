@@ -29,10 +29,11 @@ cerebro = bt.Cerebro(stdstats = False)
 
 # set up the backtest
 cerebro.adddata(data)
-cerebro.broker.setcash(100000.0)
+cerebro.broker.setcash(10000.0)
 cerebro.add_signal(bt.SIGNAL_LONG, SmaSignal)
 cerebro.addobserver(MyBuySell)
 cerebro.addobserver(bt.observers.Value)
+cerebro.addsizer(bt.sizers.PercentSizer, percents=95)
 
 # run backtest
 print(f"Starting Portfolio Value: {cerebro.broker.getvalue():.2f}")

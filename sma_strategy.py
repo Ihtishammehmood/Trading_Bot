@@ -1,7 +1,9 @@
 from datetime import datetime
 import backtrader as bt
-import yfinance as yf
-from strategy_utils import MyBuySell, get_action_log_string, get_result_log_string
+import MetaTrader5 as mt5
+# import yfinance as yf
+from src.data_ingest import MT5DataIngest
+from src.strategy_utils import MyBuySell,get_action_log_string, get_result_log_string
 
 
 
@@ -81,11 +83,17 @@ class SmaStrategy(bt.Strategy):
         print(f"Final Portfolio Value: {self.broker.get_value():.2f}")
 
 # Download AAPL data
-df = yf.download("ORCL", start="2022-01-01", end=datetime.today(), auto_adjust=False)
+# df = yf.download("ORCL", start="2022-01-01", end=datetime.today(), auto_adjust=False)
 
+# ingest data from metatrader5
+mt5_data = MT5DataIngest()
+
+start = "2023-01-01"
+end = datetime.today().strftime("%Y-%m-%d")
+df = mt5_data.get_data("XAUUSD", mt5.TIMEFRAME_H4, start, end)
 # Ensure proper column names for Backtrader
-df = df[['Open', 'High', 'Low', 'Close', 'Volume', 'Adj Close']]
-df.columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'Adj Close']
+df = df[['open', 'high', 'low', 'close', 'tick_volume']]
+df.columns = ['open', 'high', 'low', 'close', 'tick_volume']
 
 # create a Cerebro entity
 cerebro = bt.Cerebro(stdstats = False)
@@ -97,8 +105,10 @@ cerebro.broker.setcash(100000.0)
 cerebro.addstrategy(SmaStrategy)
 cerebro.addobserver(MyBuySell)
 cerebro.addobserver(bt.observers.Value)
+cerebro.addsizer(bt.sizers.PercentSizer, percents=95)
+
 
 # run backtest
 cerebro.run()
 
-cerebro.plot(iplot=False, volume=False)
+cerebro.plot(iplot=False, volume=False,start = datetime(2023,1,1), end = datetime.today())
