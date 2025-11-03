@@ -1,7 +1,6 @@
 from datetime import datetime
 import backtrader as bt
 import MetaTrader5 as mt5
-# import yfinance as yf
 from src.data_ingest import MT5DataIngest
 from src.strategy_utils import MyBuySell,get_action_log_string, get_result_log_string
 
@@ -9,7 +8,7 @@ from src.strategy_utils import MyBuySell,get_action_log_string, get_result_log_s
 
 # Create a Strategy
 class SmaStrategy(bt.Strategy):
-    params = (("ma_period", 20), )
+    params = (("ma_period", 20),)
 
     def __init__(self):
         # keep track of close price in the series
@@ -90,7 +89,7 @@ mt5_data = MT5DataIngest()
 
 start = "2023-01-01"
 end = datetime.today().strftime("%Y-%m-%d")
-df = mt5_data.get_data("XAUUSD", mt5.TIMEFRAME_H4, start, end)
+df = mt5_data.get_data("EURUSD", mt5.TIMEFRAME_H4, start, end)
 # Ensure proper column names for Backtrader
 df = df[['open', 'high', 'low', 'close', 'tick_volume']]
 df.columns = ['open', 'high', 'low', 'close', 'tick_volume']
@@ -106,6 +105,8 @@ cerebro.addstrategy(SmaStrategy)
 cerebro.addobserver(MyBuySell)
 cerebro.addobserver(bt.observers.Value)
 cerebro.addsizer(bt.sizers.PercentSizer, percents=95)
+cerebro.broker.setcommission(commission=0.001)
+
 
 
 # run backtest

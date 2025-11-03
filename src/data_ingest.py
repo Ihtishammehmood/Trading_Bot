@@ -49,7 +49,6 @@ class MT5DataIngest:
 
 
 if __name__ == "__main__":
-    # Example usage
     mt5_data = MT5DataIngest()
     start = "2023-01-01"
     end = datetime.today().strftime("%Y-%m-%d")
