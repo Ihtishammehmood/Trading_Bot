@@ -1,6 +1,8 @@
 # Forex Backtesting with Metatrader5 and Backtrader
 
+![YouTube Thumbnail](img/trading_thumnail.PNG)
 
+# [Watch Full Video](https://youtu.be/KtFDI2TQdRE)
 ## Overview
 
 A backtesting project combining MetaTrader 5 for data feeds and Backtrader for strategy implementation and testing.
